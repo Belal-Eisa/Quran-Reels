@@ -57,13 +57,13 @@ def get_ayah_full_data(surah, ayah, include_en=True):
             return data[0]["text"], data[0]["surah"]["name"], data[0]["surah"]["englishName"], (data[1]["text"] if include_en else "")
     except Exception:
         pass
-    # محاولة بديلة لو حصل خطأ في الـ API المشترك
+    
     url_alt = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/quran-uthmani"
     res_alt = requests.get(url_alt, timeout=15).json()
     if res_alt.get("code") == 200:
         d = res_alt["data"]
         return d["text"], d["surah"]["name"], d["surah"]["englishName"], "Translation unavailable."
-    raise Exception(f"تعذر جلب الآية {surah}:{ayah} من السيرفر، تأكد من صحة أرقام الآيات.")
+    raise Exception(f"تعذر جلب الآية {surah}:{ayah}")
 
 def download_audio(surah, ayah, reciter_id, out_path):
     url = f"https://everyayah.com/data/{reciter_id}/{surah:03d}{ayah:03d}.mp3"
@@ -72,8 +72,6 @@ def download_audio(surah, ayah, reciter_id, out_path):
         with open(out_path, "wb") as f:
             for chunk in res.iter_content(1024):
                 f.write(chunk)
-    else:
-        raise Exception(f"فشل تحميل تلاوة الآية {ayah}")
 
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
@@ -84,64 +82,83 @@ def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
 
 def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_name, progress_ratio, watermark, out_png):
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    dark_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 115))
+    dark_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 125))
     img = Image.alpha_composite(img, dark_layer)
 
     card_layer = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     card_draw = ImageDraw.Draw(card_layer)
-    card_margin_x = 65
-    card_top, card_bottom = 260, HEIGHT - 260
-    card_draw.rounded_rectangle([card_margin_x, card_top, WIDTH - card_margin_x, card_bottom], radius=45, fill=(10, 15, 25, 145), outline=(212, 175, 55, 90), width=2)
+    card_margin_x = 55
+    card_top, card_bottom = 190, HEIGHT - 185
+    
+    # الكارت الزجاجي الفاخر
+    card_draw.rounded_rectangle([card_margin_x, card_top, WIDTH - card_margin_x, card_bottom], radius=40, fill=(10, 15, 25, 160), outline=(212, 175, 55, 120), width=2)
 
+    # كبسولة العلامة المائية في الأسفل
     if watermark:
-        wm_box_w, wm_box_h = 360, 64
-        wm_x1, wm_y1 = (WIDTH - wm_box_w) // 2, HEIGHT - 182
-        card_draw.rounded_rectangle([wm_x1, wm_y1, wm_x1 + wm_box_w, wm_y1 + wm_box_h], radius=32, fill=(10, 15, 25, 175), outline=(212, 175, 55, 130), width=2)
-        card_draw.ellipse([wm_x1 + 28, wm_y1 + 27, wm_x1 + 38, wm_y1 + 37], fill=(212, 175, 55, 230))
-        card_draw.ellipse([wm_x1 + wm_box_w - 38, wm_y1 + 27, wm_x1 + wm_box_w - 28, wm_y1 + 37], fill=(212, 175, 55, 230))
+        wm_box_w, wm_box_h = 340, 58
+        wm_x1, wm_y1 = (WIDTH - wm_box_w) // 2, HEIGHT - 155
+        card_draw.rounded_rectangle([wm_x1, wm_y1, wm_x1 + wm_box_w, wm_y1 + wm_box_h], radius=28, fill=(10, 15, 25, 200), outline=(212, 175, 55, 140), width=2)
+        card_draw.ellipse([wm_x1 + 22, wm_y1 + 22, wm_x1 + 32, wm_y1 + 32], fill=(212, 175, 55, 240))
+        card_draw.ellipse([wm_x1 + wm_box_w - 32, wm_y1 + 22, wm_x1 + wm_box_w - 22, wm_y1 + 32], fill=(212, 175, 55, 240))
 
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
-    font_ar = ImageFont.truetype(QURAN_FONT_PATH, 66)
-    font_header = ImageFont.truetype(UI_FONT_PATH, 50)
-    font_en = ImageFont.truetype(UI_FONT_PATH, 32)
-    font_footer = ImageFont.truetype(UI_FONT_PATH, 32)
-    font_wm = ImageFont.truetype(UI_FONT_PATH, 30)
+    font_header = ImageFont.truetype(UI_FONT_PATH, 42)
+    font_en = ImageFont.truetype(UI_FONT_PATH, 26)
+    font_footer = ImageFont.truetype(UI_FONT_PATH, 26)
+    font_wm = ImageFont.truetype(UI_FONT_PATH, 26)
 
-    draw_arabic_text(draw, (WIDTH // 2, card_top + 85), f"✦ {surah_ar} ✦", font_header, (212, 175, 55, 255))
-    draw.text((WIDTH // 2, card_top + 145), f"Surah {surah_en} • Ayah {ayah_num}", font=font_footer, fill=(200, 200, 200, 210), anchor="mm")
-    draw.line([(WIDTH // 2 - 180, card_top + 185), (WIDTH // 2 + 180, card_top + 185)], fill=(212, 175, 55, 120), width=2)
+    # رأس الكارت (اسم السورة ورقمها)
+    draw_arabic_text(draw, (WIDTH // 2, card_top + 65), f"✦ {surah_ar} ✦", font_header, (212, 175, 55, 255))
+    draw.text((WIDTH // 2, card_top + 115), f"Surah {surah_en} • Ayah {ayah_num}", font=font_footer, fill=(200, 200, 200, 210), anchor="mm")
+    draw.line([(WIDTH // 2 - 150, card_top + 145), (WIDTH // 2 + 150, card_top + 145)], fill=(212, 175, 55, 120), width=2)
 
-    ar_lines = textwrap.wrap(ar_text, width=28)
-    en_lines = textwrap.wrap(en_text, width=46) if en_text else []
-    ar_line_h, en_line_h = 115, 48
-    total_h = (len(ar_lines) * ar_line_h) + (len(en_lines) * en_line_h) + (55 if en_lines else 0)
-    current_y = (HEIGHT - total_h) // 2 + 20
+    # نظام التصغير التلقائي الذكي لمقاس خط الآية حسب طول النص
+    text_len = len(ar_text)
+    if text_len > 300:
+        font_ar_size, wrap_w, line_h = 42, 36, 68
+    elif text_len > 150:
+        font_ar_size, wrap_w, line_h = 48, 32, 78
+    else:
+        font_ar_size, wrap_w, line_h = 56, 28, 90
+
+    font_ar = ImageFont.truetype(QURAN_FONT_PATH, font_ar_size)
+
+    ar_lines = textwrap.wrap(ar_text, width=wrap_w)
+    en_lines = textwrap.wrap(en_text, width=55) if en_text else []
+    en_line_h = 36
+    
+    total_text_h = (len(ar_lines) * line_h) + (len(en_lines) * en_line_h) + (30 if en_lines else 0)
+    
+    # حساب نقطة البداية للمنتصف بدقة شديدة لتفادي أي تداخل مع الاسم أو العلامة
+    available_space = (card_bottom - 120) - (card_top + 175)
+    current_y = card_top + 175 + max(10, (available_space - total_text_h) // 2)
     arabic_digits = str(ayah_num).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
 
     for i, line in enumerate(ar_lines):
         if i == len(ar_lines) - 1:
             line = f"{line} ﴿{arabic_digits}﴾"
         draw_arabic_text(draw, (WIDTH // 2, current_y), line, font_ar, (255, 255, 255, 255))
-        current_y += ar_line_h
+        current_y += line_h
 
     if en_lines:
-        current_y += 25
+        current_y += 15
         for line in en_lines:
-            draw.text((WIDTH // 2 + 1, current_y + 2), line, font=font_en, fill=(0, 0, 0, 200), anchor="mm")
-            draw.text((WIDTH // 2, current_y), line, font=font_en, fill=(215, 225, 235, 240), anchor="mm")
+            draw.text((WIDTH // 2 + 1, current_y + 1), line, font=font_en, fill=(0, 0, 0, 220), anchor="mm")
+            draw.text((WIDTH // 2, current_y), line, font=font_en, fill=(210, 220, 235, 240), anchor="mm")
             current_y += en_line_h
 
-    bar_w = WIDTH - (card_margin_x * 2) - 160
-    bar_x1, bar_y = (WIDTH - bar_w) // 2, card_bottom - 130
-    draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + bar_w, bar_y + 8], radius=4, fill=(255, 255, 255, 50))
-    fill_w = max(12, int(bar_w * progress_ratio))
-    draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + fill_w, bar_y + 8], radius=4, fill=(212, 175, 55, 255))
+    # شريط التقدم (Progress Bar) وقارئ الآية
+    bar_w = WIDTH - (card_margin_x * 2) - 120
+    bar_x1, bar_y = (WIDTH - bar_w) // 2, card_bottom - 95
+    draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + bar_w, bar_y + 6], radius=3, fill=(255, 255, 255, 45))
+    fill_w = max(10, int(bar_w * progress_ratio))
+    draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + fill_w, bar_y + 6], radius=3, fill=(212, 175, 55, 255))
 
-    draw_arabic_text(draw, (WIDTH // 2, card_bottom - 75), f"القارئ: {reciter_name}", font_footer, (212, 175, 55, 230))
+    draw_arabic_text(draw, (WIDTH // 2, card_bottom - 55), f"القارئ: {reciter_name}", font_footer, (212, 175, 55, 235))
     if watermark:
-        draw.text((WIDTH // 2, HEIGHT - 150), watermark, font=font_wm, fill=(245, 245, 245, 240), anchor="mm")
+        draw.text((WIDTH // 2, HEIGHT - 125), watermark, font=font_wm, fill=(245, 245, 245, 245), anchor="mm")
 
     img.save(out_png)
 
