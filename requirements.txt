@@ -2,3 +2,5 @@ streamlit
 requests
 Pillow
 imageio-ffmpeg
+arabic-reshaper
+python-bidi
