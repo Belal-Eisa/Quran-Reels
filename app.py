@@ -43,7 +43,6 @@ def download_files():
 download_files()
 
 def format_arabic(text):
-    """ضبط وتشكيل الحروف العربية لتظهر سليمة 100%"""
     return get_display(arabic_reshaper.reshape(text))
 
 def get_ayah_full_data(surah, ayah, include_en=True):
@@ -188,15 +187,19 @@ if st.button("🎬 ابدأ إنشاء الريل الآن"):
 
         out_name = f"Quran_PRO_S{surah_num}_A{start_ayah}-{end_ayah}.mp4"
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", out_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        if os.path.exists(out_name):
+            st.success("✅ تم إنشاء الفيديو بنجاح وبأعلى جودة!")
+            with open(out_name, "rb") as f:
+                video_bytes = f.read()
+                st.video(video_bytes)
+                st.download_button(
+                    label="📥 تحميل الفيديو على جهازك (مباشر)",
+                    data=video_bytes,
+                    file_name=out_name,
+                    mime="video/mp4"
+                )
+        else:
+            st.error("❌ حدث خطأ أثناء دمج الفيديو النهائي، يرجى المحاولة مرة أخرى.")
+        
         shutil.rmtree(TEMP_DIR, ignore_errors=True)
-
-        st.success("✅ تم إنشاء الفيديو بنجاح وبأعلى جودة!")
-        with open(out_name, "rb") as f:
-            video_bytes = f.read()
-            st.video(video_bytes)
-            st.download_button(
-                label="📥 تحميل الفيديو على جهازك (مباشر)",
-                data=video_bytes,
-                file_name=out_name,
-                mime="video/mp4"
-            )
