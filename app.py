@@ -8,6 +8,7 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
+import imageio_ffmpeg
 
 # إعدادات الصفحة والتصميم
 st.set_page_config(page_title="Quran Reels Studio | Belal A Eisa", page_icon="🕌", layout="centered")
@@ -17,6 +18,9 @@ QURAN_FONT_PATH = "UthmanicHafs.ttf"
 UI_FONT_PATH = "Amiri-Bold.ttf"
 TEMP_DIR = "temp_quran_pro"
 DEFAULT_WATERMARK = "Belal A Eisa"
+
+# الحصول على مسار FFmpeg المحمل تلقائياً عبر بايثون
+FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 RECITERS = {
     "مشاري العفاسي": "Alafasy_128kbps",
@@ -132,7 +136,7 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     img.save(out_png)
 
 def build_segment_ffmpeg(bg_path, overlay_png, audio_mp3, out_mp4):
-    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", bg_path, "-i", overlay_png, "-i", audio_mp3,
+    cmd = [FFMPEG_PATH, "-y", "-loop", "1", "-i", bg_path, "-i", overlay_png, "-i", audio_mp3,
            "-filter_complex", f"[0:v]scale=1200:2134:force_original_aspect_ratio=increase,crop=1200:2134,zoompan=z='min(zoom+0.0005,1.15)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={WIDTH}x{HEIGHT}:fps=25,setsar=1[bg];[bg][1:v]overlay=0:0[outv]",
            "-map", "[outv]", "-map", "2:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p", "-shortest", out_mp4]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -186,7 +190,10 @@ if st.button("🎬 ابدأ إنشاء الريل الآن"):
                 f.write(f"file '{os.path.abspath(seg)}'\n")
 
         out_name = f"Quran_PRO_S{surah_num}_A{start_ayah}-{end_ayah}.mp4"
-        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", out_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        # دمج الفيديو النهائي باستخدام FFMPEG_PATH
+        concat_cmd = [FFMPEG_PATH, "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", out_name]
+        subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         
         if os.path.exists(out_name):
             st.success("✅ تم إنشاء الفيديو بنجاح وبأعلى جودة!")
