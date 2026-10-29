@@ -335,11 +335,34 @@ def create_pro_overlay(
     # لا نعكس كلمات الآية؛ نعالج تشكيلها واتجاهها فقط.
     max_text_width = WIDTH - 180
 
-    ar_lines = wrap_text_by_pixel_width(
-        ar_text,
-        font_ar,
+# فصل البسملة عن الآية الأولى في السور التي تبدأ بها
+bismillah = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
+display_ar_text = ar_text
+
+if ayah_num == 1 and int(surah_num) not in (1, 9):
+    # حذف البسملة من بداية الآية المعروضة فقط
+    normalized_ayah = ar_text.replace(" ", "")
+    normalized_bismillah = bismillah.replace(" ", "")
+
+    if normalized_ayah.startswith(normalized_bismillah):
+        display_ar_text = ar_text[len(bismillah):].strip()
+
+ar_lines = wrap_text_by_pixel_width(
+    display_ar_text,
+    font_ar,
+    draw,
+    max_text_width,
+    direction="rtl",
+)
+
+# إظهار البسملة بشكل مستقل فوق نص الآية
+if ayah_num == 1 and int(surah_num) not in (1, 9):
+    draw_centered_text(
         draw,
-        max_text_width,
+        (WIDTH // 2, card_top + 230),
+        bismillah,
+        font_ar,
+        (255, 255, 255, 255),
         direction="rtl",
     )
 
