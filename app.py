@@ -845,8 +845,7 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     watermark=watermark_text.strip(),
                     out_png=overlay_path,
                 )
-
-                if index == 1:
+if index == 1:
     st.image(
         overlay_path,
         caption="معاينة التصميم قبل دمجه مع الفيديو",
