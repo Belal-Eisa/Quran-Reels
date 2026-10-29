@@ -6,6 +6,8 @@ import textwrap
 import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 import imageio_ffmpeg
 
 # إعدادات الصفحة والتصميم
@@ -43,6 +45,11 @@ def download_files():
 
 download_files()
 
+def format_arabic(text):
+    """إعادة تشكيل وعكس النص العربي ليظهر متصل وصحيح 100%"""
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
+
 def get_ayah_full_data(surah, ayah, include_en=True):
     url = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/editions/quran-uthmani,en.sahih"
     try:
@@ -70,9 +77,10 @@ def download_audio(surah, ayah, reciter_id, out_path):
 
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
+    formatted_text = format_arabic(text)
     if shadow_fill:
-        draw.text((x + 2, y + 3), text, font=font, fill=shadow_fill, anchor="mm")
-    draw.text((x, y), text, font=font, fill=fill, anchor="mm")
+        draw.text((x + 2, y + 3), formatted_text, font=font, fill=shadow_fill, anchor="mm")
+    draw.text((x, y), formatted_text, font=font, fill=fill, anchor="mm")
 
 def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_name, progress_ratio, watermark, out_png):
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -146,8 +154,8 @@ def build_segment_ffmpeg(bg_path, overlay_png, audio_mp3, out_mp4):
            "-map", "[outv]", "-map", "2:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p", "-shortest", out_mp4]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-st.title("🕌 صلي علي النبي القرآن الكريم")
-st.markdown(f"### تصميم وإخراج: **{DEFAULT_WATERMARK}**")
+st.title("🕌 ريلز القرآن الكريم")
+st.markdown(f"### تصميم: **{DEFAULT_WATERMARK}**")
 st.write("أنشئ فيديوهات ريلز قرآنية احترافية بدقة عالية مع التلاوة، الرسم العثماني، الترجمة،بضغطة زر واحدة.")
 
 surah_num = st.number_input("رقم السورة (من 1 إلى 114):", min_value=1, max_value=114, value=18)
@@ -160,7 +168,7 @@ with col2:
 selected_reciter_name = st.selectbox("اختر القارئ:", list(RECITERS.keys()))
 include_english = st.checkbox("إضافة الترجمة الإنجليزية تحت الآية", value=True)
 
-if st.button("🎬صلي علي النبي وابدأ بـ إنشاء الريل الآن"):
+if st.button("🎬 ابدأ إنشاء الريل الآن"):
     with st.spinner("⏳ جاري معالجة الصوت والآيات ورندر الفيديو... انتظر قليلاً"):
         os.makedirs(TEMP_DIR, exist_ok=True)
         reciter_id = RECITERS[selected_reciter_name]
