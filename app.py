@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import requests
@@ -11,7 +12,7 @@ from bidi.algorithm import get_display
 st.set_page_config(
     page_title="Quran Reels Studio | Belal A Eisa",
     page_icon="🕌",
-    layout="centered"
+    layout="centered",
 )
 
 WIDTH, HEIGHT = 1080, 1920
@@ -37,10 +38,12 @@ RECITERS = {
 FONT_URLS = {
     QURAN_FONT_PATH: (
         "https://github.com/quran/quran.com-frontend-next/raw/"
-        "production/public/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.ttf"
+        "production/public/fonts/quran/hafs/uthmanic_hafs/"
+        "UthmanicHafs1Ver18.ttf"
     ),
     UI_FONT_PATH: (
-        "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf"
+        "https://github.com/google/fonts/raw/main/"
+        "ofl/amiri/Amiri-Bold.ttf"
     ),
 }
 
@@ -55,8 +58,8 @@ def download_file_if_missing(path, url):
     if not response.content:
         raise RuntimeError(f"ملف الخط فارغ: {path}")
 
-    with open(path, "wb") as f:
-        f.write(response.content)
+    with open(path, "wb") as file:
+        file.write(response.content)
 
 
 @st.cache_resource
@@ -89,14 +92,12 @@ def get_ayah_full_data(surah, ayah, include_en=True):
 
         if payload.get("code") == 200:
             data = payload["data"]
-
             return (
                 data[0]["text"],
                 data[0]["surah"]["name"],
                 data[0]["surah"]["englishName"],
                 data[1]["text"] if include_en else "",
             )
-
     except Exception:
         pass
 
@@ -104,14 +105,12 @@ def get_ayah_full_data(surah, ayah, include_en=True):
         f"https://api.alquran.cloud/v1/ayah/"
         f"{surah}:{ayah}/quran-uthmani"
     )
-
     response = requests.get(fallback_url, timeout=20)
     response.raise_for_status()
     payload = response.json()
 
     if payload.get("code") == 200:
         data = payload["data"]
-
         return (
             data["text"],
             data["surah"]["name"],
@@ -150,9 +149,10 @@ def make_font(path, size):
 
 
 def prepare_display_text(text, direction=None):
+    """معالجة اتجاه العربية بدون الحاجة إلى libraqm."""
     if direction == "rtl":
-        text = arabic_reshaper.reshape(text)
-        return get_display(text)
+        shaped = arabic_reshaper.reshape(text)
+        return get_display(shaped)
     return text
 
 
@@ -172,12 +172,7 @@ def draw_centered_text(
     if shadow:
         shadow_kwargs = dict(kwargs)
         shadow_kwargs["fill"] = (0, 0, 0, 220)
-
-        draw.text(
-            (x + 2, y + 3),
-            display_text,
-            **shadow_kwargs
-        )
+        draw.text((x + 2, y + 3), display_text, **shadow_kwargs)
 
     draw.text((x, y), display_text, **kwargs)
 
@@ -185,24 +180,19 @@ def draw_centered_text(
 def wrap_text_by_pixel_width(
     text, font, draw, max_width, direction=None
 ):
-    """تقسيم النص حسب عرضه الفعلي بعد تجهيز اتجاه العربية."""
     words = text.split()
     lines = []
     current = ""
 
     for word in words:
         candidate = f"{current} {word}".strip()
-
         display_candidate = prepare_display_text(
             candidate, direction
         )
 
         bbox = draw.textbbox(
-            (0, 0),
-            display_candidate,
-            font=font
+            (0, 0), display_candidate, font=font
         )
-
         text_width = bbox[2] - bbox[0]
 
         if text_width <= max_width or not current:
@@ -215,11 +205,37 @@ def wrap_text_by_pixel_width(
         lines.append(current)
 
     return lines
+
+
+def remove_bismillah_prefix(text):
+    """
+    يحذف البسملة من بداية النص المعروض فقط إن كانت موجودة،
+    مع تجاهل التشكيل والاختلافات البسيطة في علامات الرسم.
+    """
+    words = text.split()
+
+    if len(words) < 4:
+        return text
+
+    def normalize_arabic(value):
+        value = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", value)
+        return value.replace("ٱ", "ا").replace("أ", "ا").replace("إ", "ا")
+
+    first_four = " ".join(
+        normalize_arabic(word) for word in words[:4]
+    )
+    expected = "بسم الله الرحمن الرحيم"
+
+    if first_four == expected:
+        return " ".join(words[4:]).strip()
+
+    return text
 def create_pro_overlay(
     ar_text,
     surah_ar,
     surah_en,
     ayah_num,
+    surah_num,
     en_text,
     reciter_name,
     progress_ratio,
@@ -233,13 +249,11 @@ def create_pro_overlay(
     dark_layer = Image.new(
         "RGBA", (WIDTH, HEIGHT), (0, 0, 0, 125)
     )
-
     img = Image.alpha_composite(img, dark_layer)
 
     card_layer = Image.new(
         "RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0)
     )
-
     card_draw = ImageDraw.Draw(card_layer)
 
     card_margin_x = 55
@@ -298,12 +312,14 @@ def create_pro_overlay(
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
+    # الخطوط
     font_ar = make_font(UI_FONT_PATH, 52)
     font_header = make_font(UI_FONT_PATH, 42)
     font_en = make_font(UI_FONT_PATH, 26)
     font_footer = make_font(UI_FONT_PATH, 26)
     font_wm = make_font(UI_FONT_PATH, 26)
 
+    # عنوان السورة
     draw_centered_text(
         draw,
         (WIDTH // 2, card_top + 65),
@@ -332,37 +348,38 @@ def create_pro_overlay(
         width=2,
     )
 
-    # لا نعكس كلمات الآية؛ نعالج تشكيلها واتجاهها فقط.
+    # فصل البسملة بصريًا في بداية السور،
+    # باستثناء الفاتحة والتوبة.
+    show_bismillah = (
+        int(ayah_num) == 1
+        and int(surah_num) not in (1, 9)
+    )
+
+    bismillah = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
+
+    display_ar_text = ar_text
+
+    if show_bismillah:
+        # لو البسملة موجودة أصلًا داخل النص، نحذفها من النص المعروض
+        # فقط ثم نرسمها منفصلة. لا نغيّر ملف الصوت.
+        display_ar_text = remove_bismillah_prefix(ar_text)
+
+        draw_centered_text(
+            draw,
+            (WIDTH // 2, card_top + 220),
+            bismillah,
+            font_ar,
+            (255, 255, 255, 255),
+            direction="rtl",
+        )
+
     max_text_width = WIDTH - 180
 
-# فصل البسملة عن الآية الأولى في السور التي تبدأ بها
-bismillah = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
-display_ar_text = ar_text
-
-if ayah_num == 1 and int(surah_num) not in (1, 9):
-    # حذف البسملة من بداية الآية المعروضة فقط
-    normalized_ayah = ar_text.replace(" ", "")
-    normalized_bismillah = bismillah.replace(" ", "")
-
-    if normalized_ayah.startswith(normalized_bismillah):
-        display_ar_text = ar_text[len(bismillah):].strip()
-
-ar_lines = wrap_text_by_pixel_width(
-    display_ar_text,
-    font_ar,
-    draw,
-    max_text_width,
-    direction="rtl",
-)
-
-# إظهار البسملة بشكل مستقل فوق نص الآية
-if ayah_num == 1 and int(surah_num) not in (1, 9):
-    draw_centered_text(
-        draw,
-        (WIDTH // 2, card_top + 230),
-        bismillah,
+    ar_lines = wrap_text_by_pixel_width(
+        display_ar_text,
         font_ar,
-        (255, 255, 255, 255),
+        draw,
+        max_text_width,
         direction="rtl",
     )
 
@@ -377,7 +394,12 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
         if en_text else []
     )
 
-    content_top = card_top + 175
+    # مساحة النص أسفل البسملة عند بداية السورة
+    content_top = (
+        card_top + 310 if show_bismillah
+        else card_top + 175
+    )
+
     content_bottom = card_bottom - 125
     available_height = content_bottom - content_top
 
@@ -391,13 +413,13 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
         + gap_between_languages
     )
 
-    # تصغير الخط لو الآية طويلة.
+    # تصغير الخط عند الحاجة لاستيعاب النص
     if total_text_h > available_height:
-        font_ar = make_font(QURAN_FONT_PATH, 44)
+        font_ar = make_font(UI_FONT_PATH, 44)
         ar_line_h = 70
 
         ar_lines = wrap_text_by_pixel_width(
-            ar_text,
+            display_ar_text,
             font_ar,
             draw,
             max_text_width,
@@ -418,10 +440,11 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
     arabic_digits = str(ayah_num).translate(
         str.maketrans(
             "0123456789",
-            "٠١٢٣٤٥٦٧٨٩"
+            "٠١٢٣٤٥٦٧٨٩",
         )
     )
 
+    # رسم الآية
     for i, line in enumerate(ar_lines):
         if i == len(ar_lines) - 1:
             line = f"{line} ﴿{arabic_digits}﴾"
@@ -437,6 +460,7 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
 
         current_y += ar_line_h
 
+    # الترجمة الإنجليزية
     if en_lines:
         current_y += gap_between_languages
 
@@ -453,6 +477,7 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
 
             current_y += en_line_h
 
+    # شريط التقدم
     bar_w = WIDTH - (card_margin_x * 2) - 120
     bar_x1 = (WIDTH - bar_w) // 2
     bar_y = card_bottom - 95
@@ -465,7 +490,7 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
 
     fill_w = max(
         10,
-        min(bar_w, int(bar_w * progress_ratio))
+        min(bar_w, int(bar_w * progress_ratio)),
     )
 
     draw.rounded_rectangle(
@@ -474,6 +499,7 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
         fill=(212, 175, 55, 255),
     )
 
+    # اسم القارئ
     draw_centered_text(
         draw,
         (WIDTH // 2, card_bottom - 55),
@@ -483,6 +509,7 @@ if ayah_num == 1 and int(surah_num) not in (1, 9):
         direction="rtl",
     )
 
+    # العلامة المائية
     if watermark:
         draw_centered_text(
             draw,
@@ -539,19 +566,15 @@ def build_segment_ffmpeg(
 
     if result.returncode != 0:
         raise RuntimeError(
-            "فشل FFmpeg في إنشاء مقطع الفيديو:\n"
+            "فشل FFmpeg في إنشاء الفيديو:\n"
             + (
                 result.stderr[-2500:]
-                if result.stderr
-                else "سبب غير معروف"
+                if result.stderr else "سبب غير معروف"
             )
         )
 def validate_inputs(surah_num, start_ayah, end_ayah):
     if start_ayah > end_ayah:
-        st.error(
-            "رقم الآية الأولى يجب أن يكون أقل من "
-            "أو يساوي رقم الآية الأخيرة."
-        )
+        st.error("الآية الأولى يجب ألا تتجاوز الآية الأخيرة.")
         return False
 
     ayah_counts = [
@@ -574,16 +597,12 @@ def validate_inputs(surah_num, start_ayah, end_ayah):
     if end_ayah > max_ayah:
         st.error(
             f"السورة رقم {surah_num} عدد آياتها "
-            f"{max_ayah} فقط، لكن اخترت الآية {end_ayah}."
+            f"{max_ayah} فقط."
         )
         return False
 
     return True
 
-
-# ============================================================
-# Streamlit interface
-# ============================================================
 
 st.title("🕌 استوديو ريلز القرآن الكريم")
 
@@ -592,12 +611,12 @@ st.markdown(
 )
 
 st.write(
-    "أنشئ فيديوهات ريلز قرآنية عمودية مع التلاوة، "
-    "والرسم العثماني، والترجمة الإنجليزية، والعلامة المائية."
+    "أنشئ فيديوهات ريلز قرآنية مع التلاوة، "
+    "والآيات، والترجمة الإنجليزية، والعلامة المائية."
 )
 
 surah_num = st.number_input(
-    "رقم السورة (من 1 إلى 114):",
+    "رقم السورة:",
     min_value=1,
     max_value=114,
     value=18,
@@ -608,7 +627,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     start_ayah = st.number_input(
-        "من الآية رقم:",
+        "من الآية:",
         min_value=1,
         max_value=286,
         value=1,
@@ -617,10 +636,10 @@ with col1:
 
 with col2:
     end_ayah = st.number_input(
-        "إلى الآية رقم:",
+        "إلى الآية:",
         min_value=1,
         max_value=286,
-        value=5,
+        value=3,
         step=1,
     )
 
@@ -630,7 +649,7 @@ selected_reciter_name = st.selectbox(
 )
 
 include_english = st.checkbox(
-    "إضافة الترجمة الإنجليزية تحت الآية",
+    "إضافة الترجمة الإنجليزية",
     value=True,
 )
 
@@ -652,21 +671,21 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
     shutil.rmtree(TEMP_DIR, ignore_errors=True)
     os.makedirs(TEMP_DIR, exist_ok=True)
 
+    out_name = (
+        f"Quran_PRO_S{int(surah_num)}_"
+        f"A{int(start_ayah)}-{int(end_ayah)}.mp4"
+    )
+
     try:
-        with st.spinner(
-            "⏳ جاري جلب الآيات والصوت وتجهيز الفيديو..."
-        ):
+        with st.spinner("⏳ جاري إنشاء الفيديو..."):
+
             reciter_id = RECITERS[selected_reciter_name]
 
-            # إنشاء الخلفية المتدرجة
             bg_path = os.path.join(
                 TEMP_DIR, "grad_bg.png"
             )
 
-            bg = Image.new(
-                "RGB", (WIDTH, HEIGHT)
-            )
-
+            bg = Image.new("RGB", (WIDTH, HEIGHT))
             bg_draw = ImageDraw.Draw(bg)
 
             for y in range(HEIGHT):
@@ -682,7 +701,6 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
             bg.save(bg_path)
 
             segment_files = []
-
             ayah_list = list(
                 range(
                     int(start_ayah),
@@ -690,18 +708,15 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                 )
             )
 
-            total = len(ayah_list)
-
             progress = st.progress(0)
             status = st.empty()
+            total = len(ayah_list)
 
-            # معالجة كل آية على حدة
             for idx, ayah in enumerate(
                 ayah_list, start=1
             ):
                 status.info(
-                    f"جاري تجهيز الآية {ayah} "
-                    f"من {end_ayah}..."
+                    f"جاري تجهيز الآية {ayah} من {end_ayah}"
                 )
 
                 (
@@ -727,7 +742,6 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     TEMP_DIR, f"seg_{ayah}.mp4"
                 )
 
-                # تنزيل صوت الآية
                 download_audio(
                     int(surah_num),
                     ayah,
@@ -735,12 +749,14 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     audio_path,
                 )
 
-                # إنشاء صورة النصوص
+                # لاحظ تمرير رقم السورة هنا؛
+                # ده يمنع خطأ NameError السابق.
                 create_pro_overlay(
                     ar_text=ar_text,
                     surah_ar=surah_ar,
                     surah_en=surah_en,
                     ayah_num=ayah,
+                    surah_num=int(surah_num),
                     en_text=en_text,
                     reciter_name=selected_reciter_name,
                     progress_ratio=idx / total,
@@ -748,18 +764,13 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     out_png=overlay_path,
                 )
 
-                # عرض معاينة الصورة قبل تحويلها لفيديو
                 if idx == 1:
                     st.image(
                         overlay_path,
-                        caption=(
-                            "معاينة طبقة النص قبل "
-                            "دمجها مع الفيديو"
-                        ),
+                        caption="معاينة التصميم قبل دمجه مع الفيديو",
                         use_container_width=True,
                     )
 
-                # إنشاء مقطع الفيديو الخاص بالآية
                 build_segment_ffmpeg(
                     bg_path,
                     overlay_path,
@@ -768,38 +779,24 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                 )
 
                 segment_files.append(segment_path)
-
                 progress.progress(idx / total)
 
-            # تجهيز قائمة دمج المقاطع
+            # دمج المقاطع
             concat_txt = os.path.join(
                 TEMP_DIR, "concat.txt"
             )
 
             with open(
                 concat_txt, "w", encoding="utf-8"
-            ) as concat_file:
-
+            ) as file:
                 for segment in segment_files:
-                    absolute_path = os.path.abspath(
-                        segment
-                    )
-
-                    # معالجة علامات الاقتباس في المسار
+                    absolute_path = os.path.abspath(segment)
                     absolute_path = absolute_path.replace(
                         "'", r"'\''"
                     )
-
-                    concat_file.write(
+                    file.write(
                         f"file '{absolute_path}'\n"
                     )
-
-            # اسم الفيديو النهائي
-            out_name = (
-                f"Quran_PRO_S{int(surah_num)}_"
-                f"A{int(start_ayah)}-"
-                f"{int(end_ayah)}.mp4"
-            )
 
             concat_cmd = [
                 FFMPEG_PATH,
@@ -811,19 +808,19 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                 out_name,
             ]
 
-            concat_result = subprocess.run(
+            result = subprocess.run(
                 concat_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
 
-            if concat_result.returncode != 0:
+            if result.returncode != 0:
                 raise RuntimeError(
                     "فشل دمج المقاطع:\n"
                     + (
-                        concat_result.stderr[-2500:]
-                        if concat_result.stderr
+                        result.stderr[-2500:]
+                        if result.stderr
                         else "سبب غير معروف"
                     )
                 )
@@ -832,16 +829,12 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                 not os.path.exists(out_name)
                 or os.path.getsize(out_name) == 0
             ):
-                raise RuntimeError(
-                    "لم يتم إنشاء ملف الفيديو النهائي."
-                )
+                raise RuntimeError("ملف الفيديو النهائي غير موجود.")
 
-            status.success(
-                "✅ تم إنشاء الفيديو بنجاح!"
-            )
+            status.success("✅ تم إنشاء الفيديو بنجاح!")
 
-            with open(out_name, "rb") as video_file:
-                video_bytes = video_file.read()
+            with open(out_name, "rb") as file:
+                video_bytes = file.read()
 
             st.video(video_bytes)
 
@@ -853,17 +846,7 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
             )
 
     except Exception as exc:
-        st.error(
-            f"حدث خطأ أثناء إنشاء الفيديو: {exc}"
-        )
-
-        st.info(
-            "راجع اتصال الإنترنت، وتوفر الصوت للقارئ "
-            "المختار، وصحة الخطوط، وسجل الخطأ أعلاه."
-        )
+        st.error(f"حدث خطأ أثناء إنشاء الفيديو: {exc}")
 
     finally:
-        shutil.rmtree(
-            TEMP_DIR,
-            ignore_errors=True,
-        )
+        shutil.rmtree(TEMP_DIR, ignore_errors=True)
