@@ -298,7 +298,7 @@ def create_pro_overlay(
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
-    font_ar = make_font(QURAN_FONT_PATH, 52)
+    font_ar = make_font(UI_FONT_PATH, 52)
     font_header = make_font(UI_FONT_PATH, 42)
     font_en = make_font(UI_FONT_PATH, 26)
     font_footer = make_font(UI_FONT_PATH, 26)
