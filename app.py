@@ -150,10 +150,9 @@ def make_font(path, size):
 
 
 def prepare_display_text(text, direction=None):
-    """تشكيل العربية وضبط اتجاهها دون الحاجة إلى libraqm."""
     if direction == "rtl":
-        return get_display(arabic_reshaper.reshape(text))
-
+        text = arabic_reshaper.reshape(text)
+        return get_display(text)
     return text
 
 
