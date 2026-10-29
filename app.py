@@ -847,5 +847,8 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                 )
 
                 if index == 1:
-                    st.image(
-                        o
+    st.image(
+        overlay_path,
+        caption="معاينة التصميم قبل دمجه مع الفيديو",
+        use_container_width=True,
+    )
