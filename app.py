@@ -6,6 +6,8 @@ import textwrap
 import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # إعدادات الصفحة والتصميم
 st.set_page_config(page_title="Quran Reels Studio | Belal A Eisa", page_icon="🕌", layout="centered")
@@ -29,9 +31,8 @@ RECITERS = {
     "ناصر القطامي": "Nasser_Alqatami_128kbps"
 }
 
-# تحميل الخطوط تلقائياً لو مش موجودة على السيرفر
 @st.cache_resource
-def download_fonts():
+def download_files():
     if not os.path.exists(QURAN_FONT_PATH):
         r = requests.get("https://github.com/quran/quran.com-frontend-next/raw/production/public/fonts/quran/hafs/uthmanic_hafs/UthmanicHafs1Ver18.ttf")
         open(QURAN_FONT_PATH, "wb").write(r.content)
@@ -39,7 +40,11 @@ def download_fonts():
         r = requests.get("https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf")
         open(UI_FONT_PATH, "wb").write(r.content)
 
-download_fonts()
+download_files()
+
+def format_arabic(text):
+    """ضبط وتشكيل الحروف العربية لتظهر سليمة 100%"""
+    return get_display(arabic_reshaper.reshape(text))
 
 def get_ayah_full_data(surah, ayah, include_en=True):
     url = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/editions/quran-uthmani,en.sahih"
@@ -59,9 +64,10 @@ def download_audio(surah, ayah, reciter_id, out_path):
 
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
+    formatted_text = format_arabic(text)
     if shadow_fill:
-        draw.text((x + 2, y + 3), text, font=font, fill=shadow_fill, anchor="mm", direction="rtl")
-    draw.text((x, y), text, font=font, fill=fill, anchor="mm", direction="rtl")
+        draw.text((x + 2, y + 3), formatted_text, font=font, fill=shadow_fill, anchor="mm")
+    draw.text((x, y), formatted_text, font=font, fill=fill, anchor="mm")
 
 def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_name, progress_ratio, watermark, out_png):
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -90,7 +96,7 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     font_footer = ImageFont.truetype(UI_FONT_PATH, 32)
     font_wm = ImageFont.truetype(UI_FONT_PATH, 30)
 
-    draw_arabic_text(draw, (WIDTH // 2, card_top + 85), surah_ar, font_header, (212, 175, 55, 255))
+    draw_arabic_text(draw, (WIDTH // 2, card_top + 85), f"✦ {surah_ar} ✦", font_header, (212, 175, 55, 255))
     draw.text((WIDTH // 2, card_top + 145), f"Surah {surah_en} • Ayah {ayah_num}", font=font_footer, fill=(200, 200, 200, 210), anchor="mm")
     draw.line([(WIDTH // 2 - 180, card_top + 185), (WIDTH // 2 + 180, card_top + 185)], fill=(212, 175, 55, 120), width=2)
 
@@ -186,10 +192,11 @@ if st.button("🎬 ابدأ إنشاء الريل الآن"):
 
         st.success("✅ تم إنشاء الفيديو بنجاح وبأعلى جودة!")
         with open(out_name, "rb") as f:
-            st.video(f.read())
+            video_bytes = f.read()
+            st.video(video_bytes)
             st.download_button(
                 label="📥 تحميل الفيديو على جهازك (مباشر)",
-                data=f.read(),
+                data=video_bytes,
                 file_name=out_name,
                 mime="video/mp4"
             )
