@@ -71,8 +71,8 @@ def download_audio(surah, ayah, reciter_id, out_path):
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
     if shadow_fill:
-        draw.text((x + 2, y + 3), text, font=font, fill=shadow_fill, anchor="mm", direction="rtl")
-    draw.text((x, y), text, font=font, fill=fill, anchor="mm", direction="rtl")
+        draw.text((x + 2, y + 3), text, font=font, fill=shadow_fill, anchor="mm")
+    draw.text((x, y), text, font=font, fill=fill, anchor="mm")
 
 def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_name, progress_ratio, watermark, out_png):
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -84,10 +84,8 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     card_margin_x = 55
     card_top, card_bottom = 190, HEIGHT - 185
     
-    # الكارت الزجاجي الفاخر
     card_draw.rounded_rectangle([card_margin_x, card_top, WIDTH - card_margin_x, card_bottom], radius=40, fill=(10, 15, 25, 160), outline=(212, 175, 55, 120), width=2)
 
-    # كبسولة العلامة المائية في الأسفل
     if watermark:
         wm_box_w, wm_box_h = 340, 58
         wm_x1, wm_y1 = (WIDTH - wm_box_w) // 2, HEIGHT - 155
@@ -98,13 +96,12 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
-    font_ar = ImageFont.truetype(QURAN_FONT_PATH, 56)
+    font_ar = ImageFont.truetype(QURAN_FONT_PATH, 54)
     font_header = ImageFont.truetype(UI_FONT_PATH, 42)
     font_en = ImageFont.truetype(UI_FONT_PATH, 26)
     font_footer = ImageFont.truetype(UI_FONT_PATH, 26)
     font_wm = ImageFont.truetype(UI_FONT_PATH, 26)
 
-    # رأس الكارت (اسم السورة ورقمها)
     draw_arabic_text(draw, (WIDTH // 2, card_top + 65), f"✦ {surah_ar} ✦", font_header, (212, 175, 55, 255))
     draw.text((WIDTH // 2, card_top + 115), f"Surah {surah_en} • Ayah {ayah_num}", font=font_footer, fill=(200, 200, 200, 210), anchor="mm")
     draw.line([(WIDTH // 2 - 150, card_top + 145), (WIDTH // 2 + 150, card_top + 145)], fill=(212, 175, 55, 120), width=2)
@@ -131,7 +128,6 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
             draw.text((WIDTH // 2, current_y), line, font=font_en, fill=(210, 220, 235, 240), anchor="mm")
             current_y += en_line_h
 
-    # شريط التقدم وقارئ الآية
     bar_w = WIDTH - (card_margin_x * 2) - 120
     bar_x1, bar_y = (WIDTH - bar_w) // 2, card_bottom - 95
     draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + bar_w, bar_y + 6], radius=3, fill=(255, 255, 255, 45))
@@ -150,12 +146,11 @@ def build_segment_ffmpeg(bg_path, overlay_png, audio_mp3, out_mp4):
            "-map", "[outv]", "-map", "2:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p", "-shortest", out_mp4]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-# واجهة Streamlit المرئية
-st.title("🕌 استوديو ريلز القرآن الكريم")
+st.title("🕌 صلي علي النبي القرآن الكريم")
 st.markdown(f"### تصميم وإخراج: **{DEFAULT_WATERMARK}**")
-st.write("أنشئ فيديوهات ريلز قرآنية احترافية بدقة عالية مع التلاوة، الرسم العثماني، الترجمة، والعلامة المائية بضغطة زر واحدة.")
+st.write("أنشئ فيديوهات ريلز قرآنية احترافية بدقة عالية مع التلاوة، الرسم العثماني، الترجمة،بضغطة زر واحدة.")
 
-surah_num = st.number_input("رقم السورة (من 1 إلى 114):", min_value=1, max_value=114, value=67)
+surah_num = st.number_input("رقم السورة (من 1 إلى 114):", min_value=1, max_value=114, value=18)
 col1, col2 = st.columns(2)
 with col1:
     start_ayah = st.number_input("من الآية رقم:", min_value=1, value=1)
@@ -165,7 +160,7 @@ with col2:
 selected_reciter_name = st.selectbox("اختر القارئ:", list(RECITERS.keys()))
 include_english = st.checkbox("إضافة الترجمة الإنجليزية تحت الآية", value=True)
 
-if st.button("🎬 ابدأ إنشاء الريل الآن"):
+if st.button("🎬صلي علي النبي وابدأ بـ إنشاء الريل الآن"):
     with st.spinner("⏳ جاري معالجة الصوت والآيات ورندر الفيديو... انتظر قليلاً"):
         os.makedirs(TEMP_DIR, exist_ok=True)
         reciter_id = RECITERS[selected_reciter_name]
