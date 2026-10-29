@@ -19,7 +19,6 @@ UI_FONT_PATH = "Amiri-Bold.ttf"
 TEMP_DIR = "temp_quran_pro"
 DEFAULT_WATERMARK = "Belal A Eisa"
 
-# الحصول على مسار FFmpeg المحمل تلقائياً عبر بايثون
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 RECITERS = {
@@ -51,19 +50,30 @@ def format_arabic(text):
 
 def get_ayah_full_data(surah, ayah, include_en=True):
     url = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/editions/quran-uthmani,en.sahih"
-    res = requests.get(url).json()
-    if res.get("code") == 200:
-        data = res["data"]
-        return data[0]["text"], data[0]["surah"]["name"], data[0]["surah"]["englishName"], (data[1]["text"] if include_en else "")
-    raise Exception(f"خطأ في جلب الآية {surah}:{ayah}")
+    try:
+        res = requests.get(url, timeout=15).json()
+        if res.get("code") == 200:
+            data = res["data"]
+            return data[0]["text"], data[0]["surah"]["name"], data[0]["surah"]["englishName"], (data[1]["text"] if include_en else "")
+    except Exception:
+        pass
+    # محاولة بديلة لو حصل خطأ في الـ API المشترك
+    url_alt = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/quran-uthmani"
+    res_alt = requests.get(url_alt, timeout=15).json()
+    if res_alt.get("code") == 200:
+        d = res_alt["data"]
+        return d["text"], d["surah"]["name"], d["surah"]["englishName"], "Translation unavailable."
+    raise Exception(f"تعذر جلب الآية {surah}:{ayah} من السيرفر، تأكد من صحة أرقام الآيات.")
 
 def download_audio(surah, ayah, reciter_id, out_path):
     url = f"https://everyayah.com/data/{reciter_id}/{surah:03d}{ayah:03d}.mp3"
-    res = requests.get(url, stream=True)
+    res = requests.get(url, stream=True, timeout=15)
     if res.status_code == 200:
         with open(out_path, "wb") as f:
             for chunk in res.iter_content(1024):
                 f.write(chunk)
+    else:
+        raise Exception(f"فشل تحميل تلاوة الآية {ayah}")
 
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
@@ -190,8 +200,6 @@ if st.button("🎬 ابدأ إنشاء الريل الآن"):
                 f.write(f"file '{os.path.abspath(seg)}'\n")
 
         out_name = f"Quran_PRO_S{surah_num}_A{start_ayah}-{end_ayah}.mp4"
-        
-        # دمج الفيديو النهائي باستخدام FFMPEG_PATH
         concat_cmd = [FFMPEG_PATH, "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", out_name]
         subprocess.run(concat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         
