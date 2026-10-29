@@ -1,5 +1,4 @@
 import os
-import re
 import shutil
 import subprocess
 import requests
@@ -8,6 +7,10 @@ from PIL import Image, ImageDraw, ImageFont
 import imageio_ffmpeg
 import arabic_reshaper
 from bidi.algorithm import get_display
+
+# =========================================================
+# Quran Reels Studio
+# =========================================================
 
 st.set_page_config(
     page_title="Quran Reels Studio | Belal A Eisa",
@@ -47,6 +50,19 @@ FONT_URLS = {
     ),
 }
 
+# Preserve Arabic diacritics when reshaping.
+ARABIC_RESHAPER = arabic_reshaper.ArabicReshaper(
+    configuration={
+        "delete_harakat": False,
+        "shift_harakat_position": True,
+        "support_ligatures": True,
+    }
+)
+
+
+# =========================================================
+# Fonts
+# =========================================================
 
 def download_file_if_missing(path, url):
     if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -67,6 +83,7 @@ def prepare_fonts():
     for path, url in FONT_URLS.items():
         download_file_if_missing(path, url)
 
+    # Verify that the font files can actually be opened.
     ImageFont.truetype(QURAN_FONT_PATH, 40)
     ImageFont.truetype(UI_FONT_PATH, 30)
     return True
@@ -75,9 +92,99 @@ def prepare_fonts():
 try:
     prepare_fonts()
 except Exception as exc:
-    st.error(f"مشكلة في تجهيز الخطوط: {exc}")
+    st.error(f"تعذر تجهيز الخطوط: {exc}")
     st.stop()
 
+
+def make_font(path, size):
+    return ImageFont.truetype(path, size)
+
+
+# =========================================================
+# Arabic text processing
+# =========================================================
+
+def prepare_display_text(text, direction=None):
+    """
+    Prepare Arabic text for Pillow without libraqm.
+    Keep the original text intact for API/audio purposes.
+    """
+    if direction == "rtl":
+        return get_display(ARABIC_RESHAPER.reshape(text))
+    return text
+
+
+def draw_centered_text(
+    draw,
+    xy,
+    text,
+    font,
+    fill,
+    shadow=True,
+    direction=None,
+):
+    x, y = xy
+    display_text = prepare_display_text(text, direction)
+
+    if shadow:
+        draw.text(
+            (x + 2, y + 3),
+            display_text,
+            font=font,
+            fill=(0, 0, 0, 220),
+            anchor="mm",
+        )
+
+    draw.text(
+        (x, y),
+        display_text,
+        font=font,
+        fill=fill,
+        anchor="mm",
+    )
+
+
+def wrap_text_by_pixel_width(
+    text,
+    font,
+    draw,
+    max_width,
+    direction=None,
+):
+    """Wrap text according to rendered pixel width."""
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        display_candidate = prepare_display_text(
+            candidate, direction
+        )
+
+        bbox = draw.textbbox(
+            (0, 0),
+            display_candidate,
+            font=font,
+        )
+
+        width = bbox[2] - bbox[0]
+
+        if width <= max_width or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+
+    if current:
+        lines.append(current)
+
+    return lines
+
+
+# =========================================================
+# Quran API and audio
+# =========================================================
 
 def get_ayah_full_data(surah, ayah, include_en=True):
     url = (
@@ -92,25 +199,30 @@ def get_ayah_full_data(surah, ayah, include_en=True):
 
         if payload.get("code") == 200:
             data = payload["data"]
+
             return (
                 data[0]["text"],
                 data[0]["surah"]["name"],
                 data[0]["surah"]["englishName"],
                 data[1]["text"] if include_en else "",
             )
+
     except Exception:
         pass
 
+    # Arabic-only fallback.
     fallback_url = (
         f"https://api.alquran.cloud/v1/ayah/"
         f"{surah}:{ayah}/quran-uthmani"
     )
+
     response = requests.get(fallback_url, timeout=20)
     response.raise_for_status()
     payload = response.json()
 
     if payload.get("code") == 200:
         data = payload["data"]
+
         return (
             data["text"],
             data["surah"]["name"],
@@ -118,7 +230,9 @@ def get_ayah_full_data(surah, ayah, include_en=True):
             "Translation unavailable." if include_en else "",
         )
 
-    raise RuntimeError(f"تعذر جلب الآية {surah}:{ayah}")
+    raise RuntimeError(
+        f"تعذر جلب الآية {surah}:{ayah}"
+    )
 
 
 def download_audio(surah, ayah, reciter_id, out_path):
@@ -127,109 +241,34 @@ def download_audio(surah, ayah, reciter_id, out_path):
         f"{surah:03d}{ayah:03d}.mp3"
     )
 
-    response = requests.get(url, stream=True, timeout=30)
+    response = requests.get(
+        url,
+        stream=True,
+        timeout=30,
+    )
     response.raise_for_status()
 
-    bytes_written = 0
+    total_bytes = 0
 
     with open(out_path, "wb") as audio_file:
-        for chunk in response.iter_content(chunk_size=65536):
+        for chunk in response.iter_content(
+            chunk_size=65536
+        ):
             if chunk:
                 audio_file.write(chunk)
-                bytes_written += len(chunk)
+                total_bytes += len(chunk)
 
-    if bytes_written < 1000:
+    if total_bytes < 1000:
         raise RuntimeError(
-            f"ملف الصوت للآية {surah}:{ayah} فارغ أو غير صالح."
+            f"ملف صوت الآية {surah}:{ayah} غير صالح "
+            "أو غير متوفر للقارئ المختار."
         )
 
 
-def make_font(path, size):
-    return ImageFont.truetype(path, size)
+# =========================================================
+# Overlay design
+# =========================================================
 
-
-def prepare_display_text(text, direction=None):
-    """معالجة اتجاه العربية بدون الحاجة إلى libraqm."""
-    if direction == "rtl":
-        shaped = arabic_reshaper.reshape(text)
-        return get_display(shaped)
-    return text
-
-
-def draw_centered_text(
-    draw, xy, text, font, fill,
-    shadow=True, direction=None
-):
-    x, y = xy
-    display_text = prepare_display_text(text, direction)
-
-    kwargs = {
-        "font": font,
-        "fill": fill,
-        "anchor": "mm",
-    }
-
-    if shadow:
-        shadow_kwargs = dict(kwargs)
-        shadow_kwargs["fill"] = (0, 0, 0, 220)
-        draw.text((x + 2, y + 3), display_text, **shadow_kwargs)
-
-    draw.text((x, y), display_text, **kwargs)
-
-
-def wrap_text_by_pixel_width(
-    text, font, draw, max_width, direction=None
-):
-    words = text.split()
-    lines = []
-    current = ""
-
-    for word in words:
-        candidate = f"{current} {word}".strip()
-        display_candidate = prepare_display_text(
-            candidate, direction
-        )
-
-        bbox = draw.textbbox(
-            (0, 0), display_candidate, font=font
-        )
-        text_width = bbox[2] - bbox[0]
-
-        if text_width <= max_width or not current:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-
-    if current:
-        lines.append(current)
-
-    return lines
-
-
-def remove_bismillah_prefix(text):
-    """
-    يحذف البسملة من بداية النص المعروض فقط إن كانت موجودة،
-    مع تجاهل التشكيل والاختلافات البسيطة في علامات الرسم.
-    """
-    words = text.split()
-
-    if len(words) < 4:
-        return text
-
-    def normalize_arabic(value):
-        value = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", value)
-        return value.replace("ٱ", "ا").replace("أ", "ا").replace("إ", "ا")
-
-    first_four = " ".join(
-        normalize_arabic(word) for word in words[:4]
-    )
-    expected = "بسم الله الرحمن الرحيم"
-
-    if first_four == expected:
-        return " ".join(words[4:]).strip()
-
-    return text
 def create_pro_overlay(
     ar_text,
     surah_ar,
@@ -243,17 +282,25 @@ def create_pro_overlay(
     out_png,
 ):
     img = Image.new(
-        "RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0)
+        "RGBA",
+        (WIDTH, HEIGHT),
+        (0, 0, 0, 0),
     )
 
     dark_layer = Image.new(
-        "RGBA", (WIDTH, HEIGHT), (0, 0, 0, 125)
+        "RGBA",
+        (WIDTH, HEIGHT),
+        (0, 0, 0, 125),
     )
+
     img = Image.alpha_composite(img, dark_layer)
 
     card_layer = Image.new(
-        "RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0)
+        "RGBA",
+        (WIDTH, HEIGHT),
+        (0, 0, 0, 0),
     )
+
     card_draw = ImageDraw.Draw(card_layer)
 
     card_margin_x = 55
@@ -273,8 +320,10 @@ def create_pro_overlay(
         width=2,
     )
 
+    # Watermark frame
     if watermark:
-        wm_box_w, wm_box_h = 340, 58
+        wm_box_w = 340
+        wm_box_h = 58
         wm_x1 = (WIDTH - wm_box_w) // 2
         wm_y1 = HEIGHT - 155
 
@@ -293,8 +342,10 @@ def create_pro_overlay(
 
         card_draw.ellipse(
             [
-                wm_x1 + 22, wm_y1 + 22,
-                wm_x1 + 32, wm_y1 + 32,
+                wm_x1 + 22,
+                wm_y1 + 22,
+                wm_x1 + 32,
+                wm_y1 + 32,
             ],
             fill=(212, 175, 55, 240),
         )
@@ -312,14 +363,14 @@ def create_pro_overlay(
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
-    # الخطوط
-    font_ar = make_font(UI_FONT_PATH, 52)
+    # Use the Quran font for Quran text to retain its intended style.
+    font_ar = make_font(QURAN_FONT_PATH, 52)
     font_header = make_font(UI_FONT_PATH, 42)
     font_en = make_font(UI_FONT_PATH, 26)
     font_footer = make_font(UI_FONT_PATH, 26)
-    font_wm = make_font(UI_FONT_PATH, 26)
+    font_watermark = make_font(UI_FONT_PATH, 26)
 
-    # عنوان السورة
+    # Surah heading
     draw_centered_text(
         draw,
         (WIDTH // 2, card_top + 65),
@@ -348,8 +399,8 @@ def create_pro_overlay(
         width=2,
     )
 
-    # فصل البسملة بصريًا في بداية السور،
-    # باستثناء الفاتحة والتوبة.
+    # The basmala is displayed separately for surahs that
+    # conventionally begin with it, except Al-Fatiha and At-Tawbah.
     show_bismillah = (
         int(ayah_num) == 1
         and int(surah_num) not in (1, 9)
@@ -357,13 +408,7 @@ def create_pro_overlay(
 
     bismillah = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
 
-    display_ar_text = ar_text
-
     if show_bismillah:
-        # لو البسملة موجودة أصلًا داخل النص، نحذفها من النص المعروض
-        # فقط ثم نرسمها منفصلة. لا نغيّر ملف الصوت.
-        display_ar_text = remove_bismillah_prefix(ar_text)
-
         draw_centered_text(
             draw,
             (WIDTH // 2, card_top + 220),
@@ -372,6 +417,10 @@ def create_pro_overlay(
             (255, 255, 255, 255),
             direction="rtl",
         )
+
+    # The API ayah text remains untouched. For most surahs,
+    # the basmala is not part of ayah 1 in the API response.
+    display_ar_text = ar_text
 
     max_text_width = WIDTH - 180
 
@@ -391,12 +440,14 @@ def create_pro_overlay(
             WIDTH - 180,
             direction="ltr",
         )
-        if en_text else []
+        if en_text
+        else []
     )
 
-    # مساحة النص أسفل البسملة عند بداية السورة
+    # Leave space below the separate basmala.
     content_top = (
-        card_top + 310 if show_bismillah
+        card_top + 310
+        if show_bismillah
         else card_top + 175
     )
 
@@ -405,17 +456,17 @@ def create_pro_overlay(
 
     ar_line_h = 82
     en_line_h = 38
-    gap_between_languages = 28 if en_lines else 0
+    language_gap = 28 if en_lines else 0
 
-    total_text_h = (
+    total_text_height = (
         len(ar_lines) * ar_line_h
         + len(en_lines) * en_line_h
-        + gap_between_languages
+        + language_gap
     )
 
-    # تصغير الخط عند الحاجة لاستيعاب النص
-    if total_text_h > available_height:
-        font_ar = make_font(UI_FONT_PATH, 44)
+    # Reduce font size for longer ayahs.
+    if total_text_height > available_height:
+        font_ar = make_font(QURAN_FONT_PATH, 44)
         ar_line_h = 70
 
         ar_lines = wrap_text_by_pixel_width(
@@ -426,15 +477,18 @@ def create_pro_overlay(
             direction="rtl",
         )
 
-        total_text_h = (
+        total_text_height = (
             len(ar_lines) * ar_line_h
             + len(en_lines) * en_line_h
-            + gap_between_languages
+            + language_gap
         )
 
     current_y = (
         content_top
-        + max(0, (available_height - total_text_h) // 2)
+        + max(
+            0,
+            (available_height - total_text_height) // 2,
+        )
     )
 
     arabic_digits = str(ayah_num).translate(
@@ -444,9 +498,9 @@ def create_pro_overlay(
         )
     )
 
-    # رسم الآية
-    for i, line in enumerate(ar_lines):
-        if i == len(ar_lines) - 1:
+    # Draw Arabic ayah lines without reversing word order.
+    for index, line in enumerate(ar_lines):
+        if index == len(ar_lines) - 1:
             line = f"{line} ﴿{arabic_digits}﴾"
 
         draw_centered_text(
@@ -460,9 +514,9 @@ def create_pro_overlay(
 
         current_y += ar_line_h
 
-    # الترجمة الإنجليزية
+    # English translation
     if en_lines:
-        current_y += gap_between_languages
+        current_y += language_gap
 
         for line in en_lines:
             draw_centered_text(
@@ -471,19 +525,23 @@ def create_pro_overlay(
                 line,
                 font_en,
                 (210, 220, 235, 240),
-                shadow=True,
                 direction="ltr",
             )
 
             current_y += en_line_h
 
-    # شريط التقدم
+    # Progress bar
     bar_w = WIDTH - (card_margin_x * 2) - 120
     bar_x1 = (WIDTH - bar_w) // 2
     bar_y = card_bottom - 95
 
     draw.rounded_rectangle(
-        [bar_x1, bar_y, bar_x1 + bar_w, bar_y + 6],
+        [
+            bar_x1,
+            bar_y,
+            bar_x1 + bar_w,
+            bar_y + 6,
+        ],
         radius=3,
         fill=(255, 255, 255, 45),
     )
@@ -494,12 +552,17 @@ def create_pro_overlay(
     )
 
     draw.rounded_rectangle(
-        [bar_x1, bar_y, bar_x1 + fill_w, bar_y + 6],
+        [
+            bar_x1,
+            bar_y,
+            bar_x1 + fill_w,
+            bar_y + 6,
+        ],
         radius=3,
         fill=(212, 175, 55, 255),
     )
 
-    # اسم القارئ
+    # Reciter
     draw_centered_text(
         draw,
         (WIDTH // 2, card_bottom - 55),
@@ -509,13 +572,13 @@ def create_pro_overlay(
         direction="rtl",
     )
 
-    # العلامة المائية
+    # Watermark
     if watermark:
         draw_centered_text(
             draw,
             (WIDTH // 2, HEIGHT - 125),
             watermark,
-            font_wm,
+            font_watermark,
             (245, 245, 245, 245),
             shadow=False,
             direction="ltr",
@@ -524,8 +587,15 @@ def create_pro_overlay(
     img.save(out_png)
 
 
+# =========================================================
+# FFmpeg video rendering
+# =========================================================
+
 def build_segment_ffmpeg(
-    bg_path, overlay_png, audio_mp3, out_mp4
+    bg_path,
+    overlay_png,
+    audio_mp3,
+    out_mp4,
 ):
     cmd = [
         FFMPEG_PATH,
@@ -566,33 +636,43 @@ def build_segment_ffmpeg(
 
     if result.returncode != 0:
         raise RuntimeError(
-            "فشل FFmpeg في إنشاء الفيديو:\n"
+            "فشل FFmpeg في إنشاء مقطع الفيديو:\n"
             + (
                 result.stderr[-2500:]
-                if result.stderr else "سبب غير معروف"
+                if result.stderr
+                else "سبب غير معروف"
             )
         )
+
+
+# =========================================================
+# Validate surah and ayah range
+# =========================================================
+
+AYAH_COUNTS = [
+    7, 286, 200, 176, 120, 165, 206, 75, 129, 109,
+    123, 111, 43, 52, 99, 128, 111, 110, 98, 135,
+    112, 78, 118, 64, 77, 227, 93, 88, 69, 60,
+    34, 30, 73, 54, 45, 83, 182, 88, 75, 85,
+    54, 53, 89, 59, 37, 35, 38, 29, 18, 45,
+    60, 49, 62, 55, 78, 96, 29, 22, 24, 13,
+    14, 11, 11, 18, 12, 12, 30, 52, 52, 44,
+    28, 28, 20, 56, 40, 31, 50, 40, 46, 42,
+    29, 19, 36, 25, 22, 17, 19, 26, 30, 20,
+    15, 21, 11, 8, 8, 19, 5, 8, 8, 11,
+    11, 8, 3, 9, 5, 4, 7, 3, 6, 3,
+    5, 4, 5, 6,
+]
+
+
 def validate_inputs(surah_num, start_ayah, end_ayah):
     if start_ayah > end_ayah:
-        st.error("الآية الأولى يجب ألا تتجاوز الآية الأخيرة.")
+        st.error(
+            "رقم الآية الأولى يجب ألا يتجاوز رقم الآية الأخيرة."
+        )
         return False
 
-    ayah_counts = [
-        7, 286, 200, 176, 120, 165, 206, 75, 129, 109,
-        123, 111, 43, 52, 99, 128, 111, 110, 98, 135,
-        112, 78, 118, 64, 77, 227, 93, 88, 69, 60,
-        34, 30, 73, 54, 45, 83, 182, 88, 75, 85,
-        54, 53, 89, 59, 37, 35, 38, 29, 18, 45,
-        60, 49, 62, 55, 78, 96, 29, 22, 24, 13,
-        14, 11, 11, 18, 12, 12, 30, 52, 52, 44,
-        28, 28, 20, 56, 40, 31, 50, 40, 46, 42,
-        29, 19, 36, 25, 22, 17, 19, 26, 30, 20,
-        15, 21, 11, 8, 8, 19, 5, 8, 8, 11,
-        11, 8, 3, 9, 5, 4, 7, 3, 6, 3,
-        5, 4, 5, 6
-    ]
-
-    max_ayah = ayah_counts[surah_num - 1]
+    max_ayah = AYAH_COUNTS[surah_num - 1]
 
     if end_ayah > max_ayah:
         st.error(
@@ -604,6 +684,10 @@ def validate_inputs(surah_num, start_ayah, end_ayah):
     return True
 
 
+# =========================================================
+# Streamlit interface
+# =========================================================
+
 st.title("🕌 استوديو ريلز القرآن الكريم")
 
 st.markdown(
@@ -611,12 +695,12 @@ st.markdown(
 )
 
 st.write(
-    "أنشئ فيديوهات ريلز قرآنية مع التلاوة، "
-    "والآيات، والترجمة الإنجليزية، والعلامة المائية."
+    "إنشاء فيديوهات ريلز قرآنية بالتلاوة، والرسم العثماني، "
+    "والترجمة الإنجليزية، والعلامة المائية."
 )
 
 surah_num = st.number_input(
-    "رقم السورة:",
+    "رقم السورة (من 1 إلى 114):",
     min_value=1,
     max_value=114,
     value=18,
@@ -627,7 +711,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     start_ayah = st.number_input(
-        "من الآية:",
+        "من الآية رقم:",
         min_value=1,
         max_value=286,
         value=1,
@@ -636,7 +720,7 @@ with col1:
 
 with col2:
     end_ayah = st.number_input(
-        "إلى الآية:",
+        "إلى الآية رقم:",
         min_value=1,
         max_value=286,
         value=3,
@@ -649,7 +733,7 @@ selected_reciter_name = st.selectbox(
 )
 
 include_english = st.checkbox(
-    "إضافة الترجمة الإنجليزية",
+    "إضافة الترجمة الإنجليزية تحت الآية",
     value=True,
 )
 
@@ -677,46 +761,46 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
     )
 
     try:
+        reciter_id = RECITERS[selected_reciter_name]
+
+        bg_path = os.path.join(
+            TEMP_DIR, "grad_bg.png"
+        )
+
+        bg = Image.new("RGB", (WIDTH, HEIGHT))
+        bg_draw = ImageDraw.Draw(bg)
+
+        for y in range(HEIGHT):
+            r = int(8 + (y / HEIGHT) * 10)
+            g = int(18 + (y / HEIGHT) * 28)
+            b = int(28 + (y / HEIGHT) * 35)
+
+            bg_draw.line(
+                [(0, y), (WIDTH, y)],
+                fill=(r, g, b),
+            )
+
+        bg.save(bg_path)
+
+        ayah_list = list(
+            range(
+                int(start_ayah),
+                int(end_ayah) + 1,
+            )
+        )
+
+        segment_files = []
+        total = len(ayah_list)
+        progress = st.progress(0)
+        status = st.empty()
+
         with st.spinner("⏳ جاري إنشاء الفيديو..."):
 
-            reciter_id = RECITERS[selected_reciter_name]
-
-            bg_path = os.path.join(
-                TEMP_DIR, "grad_bg.png"
-            )
-
-            bg = Image.new("RGB", (WIDTH, HEIGHT))
-            bg_draw = ImageDraw.Draw(bg)
-
-            for y in range(HEIGHT):
-                r = int(8 + (y / HEIGHT) * 10)
-                g = int(18 + (y / HEIGHT) * 28)
-                b = int(28 + (y / HEIGHT) * 35)
-
-                bg_draw.line(
-                    [(0, y), (WIDTH, y)],
-                    fill=(r, g, b),
-                )
-
-            bg.save(bg_path)
-
-            segment_files = []
-            ayah_list = list(
-                range(
-                    int(start_ayah),
-                    int(end_ayah) + 1,
-                )
-            )
-
-            progress = st.progress(0)
-            status = st.empty()
-            total = len(ayah_list)
-
-            for idx, ayah in enumerate(
+            for index, ayah in enumerate(
                 ayah_list, start=1
             ):
                 status.info(
-                    f"جاري تجهيز الآية {ayah} من {end_ayah}"
+                    f"جاري تجهيز الآية {ayah} من {end_ayah}..."
                 )
 
                 (
@@ -749,8 +833,6 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     audio_path,
                 )
 
-                # لاحظ تمرير رقم السورة هنا؛
-                # ده يمنع خطأ NameError السابق.
                 create_pro_overlay(
                     ar_text=ar_text,
                     surah_ar=surah_ar,
@@ -759,94 +841,11 @@ if st.button("🎬 ابدأ إنشاء الريل الآن", type="primary"):
                     surah_num=int(surah_num),
                     en_text=en_text,
                     reciter_name=selected_reciter_name,
-                    progress_ratio=idx / total,
+                    progress_ratio=index / total,
                     watermark=watermark_text.strip(),
                     out_png=overlay_path,
                 )
 
-                if idx == 1:
+                if index == 1:
                     st.image(
-                        overlay_path,
-                        caption="معاينة التصميم قبل دمجه مع الفيديو",
-                        use_container_width=True,
-                    )
-
-                build_segment_ffmpeg(
-                    bg_path,
-                    overlay_path,
-                    audio_path,
-                    segment_path,
-                )
-
-                segment_files.append(segment_path)
-                progress.progress(idx / total)
-
-            # دمج المقاطع
-            concat_txt = os.path.join(
-                TEMP_DIR, "concat.txt"
-            )
-
-            with open(
-                concat_txt, "w", encoding="utf-8"
-            ) as file:
-                for segment in segment_files:
-                    absolute_path = os.path.abspath(segment)
-                    absolute_path = absolute_path.replace(
-                        "'", r"'\''"
-                    )
-                    file.write(
-                        f"file '{absolute_path}'\n"
-                    )
-
-            concat_cmd = [
-                FFMPEG_PATH,
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", concat_txt,
-                "-c", "copy",
-                out_name,
-            ]
-
-            result = subprocess.run(
-                concat_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(
-                    "فشل دمج المقاطع:\n"
-                    + (
-                        result.stderr[-2500:]
-                        if result.stderr
-                        else "سبب غير معروف"
-                    )
-                )
-
-            if (
-                not os.path.exists(out_name)
-                or os.path.getsize(out_name) == 0
-            ):
-                raise RuntimeError("ملف الفيديو النهائي غير موجود.")
-
-            status.success("✅ تم إنشاء الفيديو بنجاح!")
-
-            with open(out_name, "rb") as file:
-                video_bytes = file.read()
-
-            st.video(video_bytes)
-
-            st.download_button(
-                label="📥 تحميل الفيديو على جهازك",
-                data=video_bytes,
-                file_name=out_name,
-                mime="video/mp4",
-            )
-
-    except Exception as exc:
-        st.error(f"حدث خطأ أثناء إنشاء الفيديو: {exc}")
-
-    finally:
-        shutil.rmtree(TEMP_DIR, ignore_errors=True)
+                        o
