@@ -6,8 +6,6 @@ import textwrap
 import requests
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import arabic_reshaper
-from bidi.algorithm import get_display
 import imageio_ffmpeg
 
 # إعدادات الصفحة والتصميم
@@ -45,9 +43,6 @@ def download_files():
 
 download_files()
 
-def format_arabic(text):
-    return get_display(arabic_reshaper.reshape(text))
-
 def get_ayah_full_data(surah, ayah, include_en=True):
     url = f"http://api.alquran.cloud/v1/ayah/{surah}:{ayah}/editions/quran-uthmani,en.sahih"
     try:
@@ -75,10 +70,9 @@ def download_audio(surah, ayah, reciter_id, out_path):
 
 def draw_arabic_text(draw, pos, text, font, fill, shadow_fill=(0, 0, 0, 220)):
     x, y = pos
-    formatted_text = format_arabic(text)
     if shadow_fill:
-        draw.text((x + 2, y + 3), formatted_text, font=font, fill=shadow_fill, anchor="mm")
-    draw.text((x, y), formatted_text, font=font, fill=fill, anchor="mm")
+        draw.text((x + 2, y + 3), text, font=font, fill=shadow_fill, anchor="mm", direction="rtl")
+    draw.text((x, y), text, font=font, fill=fill, anchor="mm", direction="rtl")
 
 def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_name, progress_ratio, watermark, out_png):
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -104,6 +98,7 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     img = Image.alpha_composite(img, card_layer)
     draw = ImageDraw.Draw(img)
 
+    font_ar = ImageFont.truetype(QURAN_FONT_PATH, 56)
     font_header = ImageFont.truetype(UI_FONT_PATH, 42)
     font_en = ImageFont.truetype(UI_FONT_PATH, 26)
     font_footer = ImageFont.truetype(UI_FONT_PATH, 26)
@@ -114,25 +109,12 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
     draw.text((WIDTH // 2, card_top + 115), f"Surah {surah_en} • Ayah {ayah_num}", font=font_footer, fill=(200, 200, 200, 210), anchor="mm")
     draw.line([(WIDTH // 2 - 150, card_top + 145), (WIDTH // 2 + 150, card_top + 145)], fill=(212, 175, 55, 120), width=2)
 
-    # نظام التصغير التلقائي الذكي لمقاس خط الآية حسب طول النص
-    text_len = len(ar_text)
-    if text_len > 300:
-        font_ar_size, wrap_w, line_h = 42, 36, 68
-    elif text_len > 150:
-        font_ar_size, wrap_w, line_h = 48, 32, 78
-    else:
-        font_ar_size, wrap_w, line_h = 56, 28, 90
-
-    font_ar = ImageFont.truetype(QURAN_FONT_PATH, font_ar_size)
-
-    ar_lines = textwrap.wrap(ar_text, width=wrap_w)
+    ar_lines = textwrap.wrap(ar_text, width=28)
     en_lines = textwrap.wrap(en_text, width=55) if en_text else []
-    en_line_h = 36
+    ar_line_h, en_line_h = 85, 36
     
-    total_text_h = (len(ar_lines) * line_h) + (len(en_lines) * en_line_h) + (30 if en_lines else 0)
-    
-    # حساب نقطة البداية للمنتصف بدقة شديدة لتفادي أي تداخل مع الاسم أو العلامة
-    available_space = (card_bottom - 120) - (card_top + 175)
+    total_text_h = (len(ar_lines) * ar_line_h) + (len(en_lines) * en_line_h) + (30 if en_lines else 0)
+    available_space = (card_bottom - 100) - (card_top + 175)
     current_y = card_top + 175 + max(10, (available_space - total_text_h) // 2)
     arabic_digits = str(ayah_num).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
 
@@ -140,7 +122,7 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
         if i == len(ar_lines) - 1:
             line = f"{line} ﴿{arabic_digits}﴾"
         draw_arabic_text(draw, (WIDTH // 2, current_y), line, font_ar, (255, 255, 255, 255))
-        current_y += line_h
+        current_y += ar_line_h
 
     if en_lines:
         current_y += 15
@@ -149,7 +131,7 @@ def create_pro_overlay(ar_text, surah_ar, surah_en, ayah_num, en_text, reciter_n
             draw.text((WIDTH // 2, current_y), line, font=font_en, fill=(210, 220, 235, 240), anchor="mm")
             current_y += en_line_h
 
-    # شريط التقدم (Progress Bar) وقارئ الآية
+    # شريط التقدم وقارئ الآية
     bar_w = WIDTH - (card_margin_x * 2) - 120
     bar_x1, bar_y = (WIDTH - bar_w) // 2, card_bottom - 95
     draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + bar_w, bar_y + 6], radius=3, fill=(255, 255, 255, 45))
