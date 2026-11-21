@@ -14,7 +14,7 @@ from bidi.algorithm import get_display
 # ============================================================
 st.set_page_config(
     page_title="Quran Reels Studio | Belal A Eisa",
-    page_icon="🕌",
+    page_icon="🕌.",
     layout="centered"
 )
 
